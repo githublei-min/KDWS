@@ -10,8 +10,6 @@ from option import args
 from model import fmen
 import loss
 from loss import *
-from loss.contrast_loss import ContrastLoss  # todo vgg浅层特征提取-对比损失模块
-# from loss.contrastive_loss_ctc import ContrastLoss # todo 自写特征提取器版对比损失
 import utility
 import math
 import pdb
@@ -42,13 +40,13 @@ def load_teachers():
         net = edsr.EDSR(args).to(device)
         if int(args.scale[0]) == 2:
             print("loading EDSRx2")
-            net.load_state_dict(torch.load('/data/data-home/leimin/pretrained_models/pretrained-EDSR/EDSR_x2.pt'))
+            net.load_state_dict(torch.load('./pretrained_models/pretrained-EDSR/EDSR_x2.pt'))
         elif int(args.scale[0]) == 3:
             print("loading EDSRx3")
-            net.load_state_dict(torch.load('/data/data-home/leimin/pretrained_models/pretrained-EDSR/EDSR_x3.pt'))
+            net.load_state_dict(torch.load('./pretrained_models/pretrained-EDSR/EDSR_x3.pt'))
         elif int(args.scale[0]) == 4:
             print("loading EDSRx4")
-            net.load_state_dict(torch.load('/data/data-home/leimin/pretrained_models/pretrained-EDSR/EDSR_x4.pt'))
+            net.load_state_dict(torch.load('./pretrained_models/pretrained-EDSR/EDSR_x4.pt'))
         if args.precision == 'half':
             net.half()
         teachers.append(net)
@@ -59,47 +57,26 @@ def load_teachers():
         net = rcan.RCAN(args).to(device)
         if int(args.scale[0]) == 2:
             print("loading RCANx2")
-            net.load_state_dict(torch.load('/data/data-home/leimin/pretrained_models/models_ECCV2018RCAN/RCAN_BIX2.pt'))
+            net.load_state_dict(torch.load('./pretrained_models/models_ECCV2018RCAN/RCAN_BIX2.pt'))
         elif int(args.scale[0]) == 3:
             print("loading RCANx3")
-            net.load_state_dict(torch.load('/data/data-home/leimin/pretrained_models/models_ECCV2018RCAN/.pt'))
+            net.load_state_dict(torch.load('./pretrained_models/models_ECCV2018RCAN/.pt'))
         elif int(args.scale[0]) == 4:
             print("loading RCANx4")
-            net.load_state_dict(torch.load('/data/data-home/leimin/pretrained_models/models_ECCV2018RCAN/RCAN_BIX4.pt'))
+            net.load_state_dict(torch.load('./pretrained_models/models_ECCV2018RCAN/RCAN_BIX4.pt'))
         elif int(args.scale[0]) == 8:
             print("loading RCANx8")
-            net.load_state_dict(torch.load('/data/data-home/leimin/pretrained_models/models_ECCV2018RCAN/RCAN_BIX8.pt'))
+            net.load_state_dict(torch.load('./pretrained_models/models_ECCV2018RCAN/RCAN_BIX8.pt'))
         if args.precision == 'half':
             net.half()
         teachers.append(net)
         print('=' * 40)
-    if "SAN" in args.teacher:
-        args.n_resblocks = 10
-        args.n_resgroups = 20
-        args.n_feats = 64
-        net = san.SAN(args).to(device)
-        if int(args.scale[0]) == 2:
-            print("loading SANx2")
-            net.load_state_dict_teacher(torch.load('/data/data-home/leimin/pretrained_models/pretrained_model_SAN/SAN_BI2X.pt'))
-        elif int(args.scale[0]) == 3:
-            print("loading SANx3")
-            net.load_state_dict_teacher(torch.load('/data/data-home/leimin/pretrained_models/pretrained_model_SAN/SAN_BI3X.pt'))
-        elif int(args.scale[0]) == 4:
-            print("loading SANx4")
-            net.load_state_dict_teacher(torch.load('/data/data-home/leimin/pretrained_models/pretrained_model_SAN/SAN_BI4X.pt'))
-        elif int(args.scale[0]) == 8:
-            print("loading SANx8")
-            net.load_state_dict_teacher(torch.load('/data/data-home/leimin/pretrained_models/pretrained_model_SAN/SAN_BI8X.pt'))
-        if args.precision == 'half':
-            net.half()
-        teachers.append(net)
-        print('=' * 40)
-
+   
     for teacher in teachers:
         teacher.eval()
         for p in teacher.parameters():
             p.requires_grad = False
-    # print('='*40)
+  
     for teacher in teachers:
         print("+" * 10, "Teacher model size", "+" * 10)
         print(get_parameter_number(teacher))
@@ -134,28 +111,25 @@ def create_student_model():
     print("Preparing Student ===================================>")
     student_checkpoint = utility.checkpoint(args)
 
-    # student = fmen.TRAIN_FMEN(args).to(device)
-    student = rlfn_s.RLFN_S().to(device) #用EDFN之前用的这一行
+    student = rlfn_s.RLFN_S().to(device) 
 
 
 
     if args.precision == 'half':
         student.half()
 
-    # print_model(student)
+    
     total_params = sum(p.numel() for p in student.parameters())
     print("+" * 10, "Student model size", "+" * 10)
     print(get_parameter_number(student))
     print(f'{total_params:,} total parameters in student model.')
-    # args.resume = 1
+    
     if args.resume:
         load_from = os.path.join(student_checkpoint.dir, 'model', 'model_latest.pt')
         student.load_state_dict(torch.load(load_from))
     if args.warmup:
-        # load_from = os.path.join(student_checkpoint.dir, 'model', 'model_best.pt')
         student.load_state_dict(torch.load(args.dir_warmup))
 
-    # args.resume = 0
     return student_checkpoint, student
 
 
@@ -212,15 +186,10 @@ def train(epoch):
         teacher, teacher_index = teacher_selector(teachers)
         teacher_sr = teacher(lr)
 
-        # pdb.set_trace()
-        # print('args.feature_loss_used: ', args.feature_loss_used)
         dis_loss = criterion(student_sr, teacher_sr, hr)
 
         bic_sample = lr[torch.randperm(neg_num), :, :, :]
         bic_sample = upsampler(bic_sample)
-
-        if CL:  # 控制是否加对比损失
-            dis_loss += 200*contra_loss(hr, student_sr, bic_sample)  # warmup阶段再用
 
         total_loss = dis_loss
         criterion.log[-1, 2] += total_loss.item()
@@ -256,13 +225,8 @@ def test(epoch):
         for idx_scale, scale in enumerate(args.scale):
             eval_acc = 0
             test_loader.dataset.set_scale(idx_scale)
-            tqdm_test = tqdm(test_loader, ncols=80)  # tqdm-->进度条，可用于所有进度条
+            tqdm_test = tqdm(test_loader, ncols=80) 
             for idx_data, (lr, hr, filename) in enumerate(tqdm_test):
-                # lr.shape -> [1, 3, 339, 510] # --data_test DIV2K
-                # lr.shape -> [1, 3, 128, 128] # --data_test Set5
-                # todo for what? try not to use it
-                # if lr.shape[3] > 200:
-                #     continue
                 lr, hr = prepare(lr, hr)
                 sr = student(lr)
                 sr = utility.quantize(sr, args.rgb_range)
@@ -272,12 +236,9 @@ def test(epoch):
                     sr, hr, scale, args.rgb_range,
                     benchmark=test_loader.dataset.benchmark
                 )
-
-                # student_ckp.log[-1, idx_data, idx_scale] += utility.calc_psnr(sr, hr, scale, args.rgb_range, benchmark=True)
                 if args.save_gt:
                     save_list.extend([lr, hr])
                 if args.save_results:
-                    # student_ckp.save_results(d, filename, save_list, scale)
                     student_ckp.save_results(filename, save_list, scale)
 
             student_ckp.log[-1, idx_scale] = eval_acc / len(test_loader)
@@ -349,22 +310,14 @@ if __name__ == "__main__":
     teachers = load_teachers()
     student_ckp, student = create_student_model()
 
-    # Reuse the first layer of teacher
-    # student.conv_1.weight = nn.Parameter(teachers[0].head[0].weight.clone(),requires_grad=False)
-    # student.conv_1.bias = nn.Parameter(teachers[0].head[0].bias.clone().cuda(), requires_grad=False)
-
     criterion = prepare_criterion()
     optimizer = prepare_optimizer()
     upsampler = nn.Upsample(scale_factor=args.scale[0], mode='bicubic')
-
-    # todo 固定初始化，vgg提取器
+    
     vgg_weight = [1.0 / 32, 1.0 / 16, 1.0 / 8, 1.0 / 4, 1.0]
     d_func = "L1"
     t_detach = True
     contra_loss = ContrastLoss(vgg_weight, d_func, t_detach)
-    # todo 随机初始化简单两层特征提取器
-    # loss.contrastive_loss_ctc.ContrastLoss()
-    # contra_loss = ContrastLoss(args)
 
     student_ckp.write_log(msg)
 
@@ -375,9 +328,6 @@ if __name__ == "__main__":
 
     print("Start Training ======================================>")
     while epoch < args.epochs + 1:
-        # print("epoch " + str(epoch))
-        # if epoch >= 550:
-        #    args.feature_loss_used = 0
         train(epoch)
         test(epoch)
         epoch += 1
